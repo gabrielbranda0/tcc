@@ -1,9 +1,19 @@
 #include <SPI.h>
 #include <TFT_eSPI.h>
+#include <Arduino.h>
 
 #define TFT_CS   5
 #define TFT_DC   15
 #define TFT_RST  4
+
+const int pinoBotao16 = 16; // Pino do botão push
+const int pinoBotao17 = 17; // Pino do botão push (tecla "D")
+const int pinoBotao19 = 19; // Pino do botão push (tecla "U")
+
+bool botaoPressionado16 = false; // Flag para indicar que o botão foi pressionado
+bool botaoPressionado17 = false; // Flag para indicar que o botão foi pressionado
+bool botaoPressionado19 = false; // Flag para indicar que o botão "U" foi pressionado
+
 
 TFT_eSPI tft;
 
@@ -22,43 +32,6 @@ bool linhaMudouColuna2 = false; // Flag para indicar se a linha selecionada mudo
 String dadosColuna1[numLinhas] = { "Dado 1A", "Dado 2A", "Dado 3A", "Dado 4A", "Dado 5A", "Dado 6A", "Dado 7A" };
 String dadosColuna2[numLinhas] = { "", "", "", "", "", "", "" }; // Coluna 2 inicialmente em branco
 
-#include <FS.h>
-#include "SPIFFS.h"
-
-#define FILENAME "/cadeira.bmp"
-
-void loadBitmap(const char *filename, int16_t x, int16_t y) {
-  fs::File bmpFS;
-  bmpFS = SPIFFS.open(filename, "r");
-  if (!bmpFS) {
-    Serial.println("File not found");
-    return;
-  }
-
-  if (bmpFS.read() == 'B' && bmpFS.read() == 'M') {
-    bmpFS.seek(18);
-    int imgWidth = bmpFS.read() | (bmpFS.read() << 8);
-    int imgHeight = bmpFS.read() | (bmpFS.read() << 8);
-
-    bmpFS.seek(54);
-
-    uint16_t imgColor;
-    int y_pos = y + imgHeight - 1;
-
-    for (int i = 0; i < imgHeight; i++, y_pos--) {
-      for (int j = 0; j < imgWidth; j++) {
-        uint8_t r = bmpFS.read();
-        uint8_t g = bmpFS.read();
-        uint8_t b = bmpFS.read();
-
-        imgColor = tft.color565(r, g, b);
-        tft.drawPixel(j + x, y_pos, imgColor);
-      }
-    }
-    bmpFS.close();
-  }
-}
-
 void setup() {
   tft.begin();
   tft.setRotation(3);
@@ -66,11 +39,6 @@ void setup() {
   tft.setTextColor(TFT_BLACK);
   tft.setTextSize(2);
   tft.setTextFont(1);
-
-  if (!SPIFFS.begin(true)) {
-    Serial.println("An error occurred while mounting SPIFFS");
-    return;
-  }
 
   // Cabeçalho da tabela
   tft.fillRect(0, 0, larguraTela, alturaCabecalho, TFT_DARKGREY);
@@ -103,9 +71,14 @@ void setup() {
   tft.drawRect(0, 0, larguraTela, alturaTela, TFT_BLACK);
 
   Serial.begin(115200); // Inicializar comunicação serial
+
+  pinMode(pinoBotao16, INPUT_PULLUP); // Define o pino do botão como entrada
+  pinMode(pinoBotao17, INPUT_PULLUP); // Define o pino do botão como entrada
+  pinMode(pinoBotao19, INPUT_PULLUP); // Define o pino do botão como entrada
 }
 
 void loop() {
+
   // Verificar se a linha selecionada mudou
   if (linhaMudou) {
     // Desenhar a tabela com a linha selecionada destacada
@@ -113,21 +86,73 @@ void loop() {
     linhaMudou = false;
   }
 
-  // Verificar entrada do teclado para mudar a linha selecionada
-  if (Serial.available() > 0) {
-    char tecla = Serial.read();
-    if (tecla == 'U' && linhaSelecionada > 0) { // Tecla de seta para cima
+  // Verificar se o botão "D" foi pressionado
+  bool botaoEstado17 = digitalRead(pinoBotao17);
+
+  if (botaoEstado17 == LOW && !botaoPressionado17) {
+   delay(50); // Debounce
+   if (linhaSelecionada < numLinhas - 1) { // Verifica se é possível trocar a linha
+     linhaMudou = true;
+     linhaSelecionada++;
+     linhaMudouColuna2 = false;
+    }
+    botaoPressionado17 = true; // Define a flag como true para evitar ação repetida
+  }
+
+    // Verifica se o botão foi solto
+  if (botaoEstado17 == HIGH && botaoPressionado17) {
+    botaoPressionado17 = false; // Reinicia a flag quando o botão é solto
+  }
+
+    // Verificar o estado do botão "U"
+  bool botaoEstado19 = digitalRead(pinoBotao19);
+
+    // Verificar se o botão "U" foi pressionado
+  if (botaoEstado19 == LOW && !botaoPressionado19) {
+    // Ação para o botão "U"
+    delay(50); // Debounce
+    if (linhaSelecionada > 0) { // Verifica se é possível trocar a linha
       linhaMudou = true;
       linhaSelecionada--;
-      linhaMudouColuna2 = false; // Reseta a flag para evitar que a linha fique em branco na coluna 2
-    } else if (tecla == 'D' && linhaSelecionada < numLinhas - 1) { // Tecla de seta para baixo
+      linhaMudouColuna2 = false;
+    }
+    botaoPressionado19 = true; // Define a flag como true para evitar ação repetida
+  }
+
+    // Verifica se o botão "U" foi solto
+  if (botaoEstado19 == HIGH && botaoPressionado19) {
+    botaoPressionado19 = false; // Reinicia a flag quando o botão é solto
+  }
+
+  if (Serial.available() > 0) {
+    char tecla = Serial.read();
+    if (tecla == 'U' && linhaSelecionada > 0) {
+      linhaMudou = true;
+      linhaSelecionada--;
+      linhaMudouColuna2 = false;
+    } else if (tecla == 'D' && linhaSelecionada < numLinhas - 1) {
       linhaMudou = true;
       linhaSelecionada++;
-      linhaMudouColuna2 = false; // Reseta a flag para evitar que a linha fique em branco na coluna 2
-    } else if (tecla == 'Z') { // Tecla "Z" para trocar a linha para a coluna 2
+      linhaMudouColuna2 = false;
+    }
+  }
+
+  // Verifica o estado do botão
+  bool botaoEstado16 = digitalRead(pinoBotao16);
+
+  // Verifica se o botão foi pressionado
+  if (botaoEstado16 == LOW && !botaoPressionado16) {
+    delay(50); // Debounce
+    if (linhaSelecionada < numLinhas - 1) { // Verifica se é possível trocar a linha
       linhaMudou = true;
       linhaMudouColuna2 = true;
     }
+    botaoPressionado16 = true; // Define a flag como true para evitar ação repetida
+  }
+
+  // Verifica se o botão foi solto
+  if (botaoEstado16 == HIGH && botaoPressionado16) {
+    botaoPressionado16 = false; // Reinicia a flag quando o botão é solto
   }
 
   // Trocar a linha para a Coluna 2, se necessário
@@ -176,11 +201,7 @@ void desenharTabela() {
 
   // Moldura externa da tabela
   tft.drawRect(0, 0, larguraTela, alturaTela, TFT_BLACK);
-
-  // Exibir a imagem abaixo da tabela
-  loadBitmap(FILENAME, 0, alturaTela - 120);
 }
-
 void organizarColuna1() {
   // Faz um loop para organizar a Coluna 1, eliminando linhas em branco entre as informações
   for (int i = 0; i < numLinhas - 1; i++) {
@@ -190,3 +211,4 @@ void organizarColuna1() {
     }
   }
 }
+
